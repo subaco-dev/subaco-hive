@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# uv
+.uv/
+
+# テスト・カバレッジ
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+
+# エディタ / OS
+.DS_Store
+*.swp
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# ローカルの hive データ（念のため無視）
+.hive/

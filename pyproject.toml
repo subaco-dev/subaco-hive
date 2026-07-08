@@ -1,0 +1,78 @@
+# subaco-hive: メモリプレーンの MCP サーバー＋ops CLI。
+# 配布名・パッケージ名・エントリポイントは厳守する。
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "subaco-hive"
+# v0 初期バージョン（未公開）。0.0.0 固定。
+version = "0.0.0"
+description = "Subaco memory-plane MCP server and ops CLI (SQLite + Zvec)"
+readme = "README.md"
+# Python 3.11 系を採用（Zvec / a-c-m と揃える）。
+requires-python = ">=3.11"
+license = "Apache-2.0"
+authors = [{ name = "Subaco contributors" }]
+keywords = ["mcp", "agent", "memory", "sqlite", "zvec"]
+
+# 純 Python（stdlib sqlite3 等）で動く層は依存ゼロで import・テスト可能にする。
+# 外部依存（mcp SDK / zvec / fastembed）は「遅延 import 前提」で optional-dependencies に置き、
+# 依存が入っていなくてもモジュール自体は import 可能に保つ。
+dependencies = []
+
+[project.optional-dependencies]
+# MCP サーバー本体（stdio トランスポート）に必要。段階2/3 の server.py が遅延 import する。
+# TODO: リリース時に uv export で厳密ピン。ここでは下限のみの暫定指定。
+mcp = ["mcp>=1.0"]
+# 記憶系（hive_remember / hive_recall）に必要。段階4 が遅延 import する。
+# TODO: 埋め込みモデルの最終選定は未決。バージョンは release 時に uv export で固定。
+memory = [
+  "zvec",
+  "fastembed",
+]
+all = ["subaco-hive[mcp,memory]"]
+# 開発・テスト用（stdlib 層のテストは外部依存なしで緑にできる）。
+dev = ["pytest>=8", "ruff>=0.6"]
+
+[project.scripts]
+# エントリポイント名は厳守。
+#   subaco-hive → stdio MCP サーバー起動（.mcp.json / hive-mcp ランチャが呼ぶ）。
+#   hive        → ops/admin CLI（set-trust / reset-token / backup / restore / reembed / stats / migrate）。
+# server.py / cli.py は段階2/3 で実装する（本段階1では未作成。console_scripts はメタデータのみで
+# 実体解決は実行時のため、実装前でも宣言してよい）。
+subaco-hive = "subaco_hive.server:main"
+hive = "subaco_hive.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/ponponusa/subaco"
+Repository = "https://github.com/ponponusa/subaco"
+
+[tool.hatch.build.targets.wheel]
+packages = ["subaco_hive"]
+
+# ---- 品質基準: ruff（lint+format）----
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["subaco_hive", "tests"]
+
+[tool.ruff.lint]
+# E/F(pyflakes,pycodestyle) I(isort) UP(pyupgrade) B(bugbear) SIM(simplify) — subaco-shim と同一。
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = [
+  "E501", # 行長は format に委ねる
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["subaco_hive"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+# ---- テスト: pytest ----
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+# 未インストール（editable 無し・--no-project）でも tests から subaco_hive を解決できるように。
+pythonpath = ["."]

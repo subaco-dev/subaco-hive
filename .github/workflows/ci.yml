@@ -1,0 +1,70 @@
+# subaco-hive CI。
+# - ubuntu + macos の 2 OS マトリクスで ruff（lint + format）と pytest を実行する。
+#   flock / SO_PEERCRED / LOCAL_PEERCRED 等の OS 依存機構を主要プラットフォームで検証するため
+#   並行性テスト（tests/test_concurrency.py）は両ランナー必須。
+# - stdlib のみで動く層は外部依存なしで緑になる。Zvec / MCP SDK は不要。
+# - Zvec 統合（記憶系の実バックエンド）は macOS(arm64) の別ジョブで走らせ、wheel が無ければ skip。
+#
+# セキュリティ: 供給網対策として、公開後は各 uses を commit SHA でピン留めするのが望ましい
+# （封じ込め要件と同型）。v0 ではタグ参照＋最小 permissions で運用する。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# 既定は読み取りのみ（最小権限）。
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-and-test:
+    name: lint + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest] # macos-latest は Apple Silicon（arm64）
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # ruff（lint）。Justfile の `just lint` と同一コマンド。
+      - name: ruff check
+        run: uv run --python 3.11 --with ruff --no-project ruff check .
+
+      # ruff（format 差分検出）。CI は書き換えず差分のみ検出する。
+      - name: ruff format --check
+        run: uv run --python 3.11 --with ruff --no-project ruff format --check .
+
+      # pytest（stdlib 層。外部依存なしで緑）。並行性テストもここで両 OS 実行される。
+      - name: pytest
+        run: uv run --python 3.11 --with pytest --no-project pytest -q
+
+  zvec-integration:
+    name: zvec integration (macOS arm64)
+    runs-on: macos-latest # Zvec は macOS arm64 wheel を提供する。
+    # wheel 未提供・記憶系依存の解決失敗は許容する（「wheel 無ければ skip」）。
+    # ZvecBackend の実体は spike 確定後（現状は importorskip でガードした骨子テストのみ）。
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      # memory extra（zvec / fastembed）を解決して zvec ガード付きテストのみ実行する。
+      # zvec が入れば実行、入らなければ importorskip で skip（ジョブ自体も continue-on-error）。
+      - name: pytest (memory extra, zvec-guarded)
+        run: uv run --python 3.11 --extra memory --with pytest pytest -q -k zvec

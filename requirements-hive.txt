@@ -1,0 +1,30 @@
+# requirements-hive.txt — テンプレート同梱用の固定 requirements（プレースホルダ）。
+#
+# 位置づけ:
+#   subaco テンプレートの devShell 起動スクリプトは
+#     uvx --with-requirements <このファイル> subaco-hive==<固定版>
+#   の形で subaco-hive を起動し、zvec / fastembed / mcp 等の**推移依存を完全固定**する。
+#   これにより「環境変数を変えただけで共有記憶が静かに壊れる」事故を防ぐ。
+#
+# v0 の扱い:
+#   本ファイルは **リリース時に `uv export` で自動生成**する産物であり、v0 では
+#   プレースホルダ＋生成手順のみを置く（未公開・version 0.0.0 のため実ピンは未確定）。
+#   手書きで依存を足さないこと（uv export の出力で丸ごと置き換える）。
+#
+# 生成手順（リリース時。ハッシュ付き・全推移依存固定）:
+#   # 1) 記憶系＋MCP を含む完全構成（本番配布）を解決してエクスポートする:
+#   uv export --extra all --no-dev --frozen --no-emit-project \
+#             --output-file requirements-hive.txt
+#   # 2) ハッシュ検証を強める場合（推奨。供給網対策）:
+#   #   uv export はデフォルトで --hashes を含む。生成後に zvec / fastembed の
+#   #   対象プラットフォーム wheel（manylinux x86_64/aarch64・macOS arm64。x86_64-darwin は
+#   #   Zvec 非提供）が含まれるかをリリース CI で確認する。
+#   # 3) 生成物をテンプレート（subaco リポジトリ）へ同梱し、起動スクリプトの
+#   #    `subaco-hive==<版>` と版を一致させる。
+#
+# 注意:
+#   - Intel Mac（x86_64-darwin）は Zvec wheel が無いため記憶系ツールを無効化する。
+#     メッセージングは純 stdlib で動くため、記憶系依存の解決に失敗しても縮退運用は可能。
+#   - dev 用（pytest / ruff）はこのファイルに含めない（配布物にテスト依存を混ぜない）。
+#
+# ---- ここから下は `uv export` の出力で置き換える（v0 は空のプレースホルダ）----
