@@ -24,14 +24,23 @@ from .logging import get_logger
 
 _log = get_logger(__name__)
 
-# 既定ローカルモデル（多言語小型）。日本語主体のため多言語対応を選ぶ（最終選定は簡易ベンチで確定）。
-DEFAULT_FASTEMBED_MODEL = "intfloat/multilingual-e5-small"
+# 既定ローカルモデル（多言語小型）。日本語主体のため多言語対応を選ぶ（最終選定は M1-5 の簡易ベンチで確定）。
+#
+# Zvec spike と同時に fastembed 0.8 の `TextEmbedding.list_supported_models()` を実測した結果、
+# `intfloat/multilingual-e5-small` は **fastembed が対応していない**（-large のみ提供）ため、
+# 日本語を扱える小型モデルとして paraphrase-multilingual-MiniLM-L12-v2（384 次元・約 0.22GB）を既定にする。
+# fastembed が対応する多言語モデルは実測時点で次の 3 つのみ:
+#   sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2  384 次元 / 0.22GB（既定）
+#   sentence-transformers/paraphrase-multilingual-mpnet-base-v2  768 次元 / 1.0GB
+#   intfloat/multilingual-e5-large                              1024 次元 / 2.24GB
+DEFAULT_FASTEMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
-# 実ロードせず次元を返すための既知モデル表（ベンチで確定・追補する — TODO）。
+# 実ロードせず次元を返すための既知モデル表（M1-5 のベンチで確定・追補する）。
+# fastembed 側の対応状況は `TextEmbedding.list_supported_models()` が正典。
 KNOWN_DIMS: dict[str, int] = {
-    "intfloat/multilingual-e5-small": 384,
-    "intfloat/multilingual-e5-base": 768,
     "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2": 384,
+    "sentence-transformers/paraphrase-multilingual-mpnet-base-v2": 768,
+    "intfloat/multilingual-e5-large": 1024,
     "BAAI/bge-small-en-v1.5": 384,
     # OpenAI 互換（API 型）
     "text-embedding-3-small": 1536,
@@ -202,9 +211,19 @@ class ReembedStore(Protocol):
     def insert_vectors(self, name: str, records) -> None: ...
 
 
-def temp_collection_name(base: str) -> str:
-    """reembed 用の一時コレクション名（例 `hive_team__reembed_1700000000`）。"""
-    return f"{base}__reembed_{int(time.time())}"
+def temp_collection_name(base: str, avoid: str | None = None) -> str:
+    """reembed 用の一時コレクション名（例 `hive_team__reembed_1700000000`）。
+
+    サフィックスは秒解像度のため、同一秒内の再実行では直前の一時名（= 現 active_collection）と
+    衝突して new == old になり得る。avoid と一致する間は +1 秒ずらして回避する
+    （サフィックスは db.collection_name_for が確保する 21 字予算に収まったまま）。
+    """
+    ts = int(time.time())
+    name = f"{base}__reembed_{ts}"
+    while name == avoid:
+        ts += 1
+        name = f"{base}__reembed_{ts}"
+    return name
 
 
 def reembed(conn, store: ReembedStore, provider: EmbeddingProvider) -> str:
@@ -218,7 +237,7 @@ def reembed(conn, store: ReembedStore, provider: EmbeddingProvider) -> str:
     本文を Zvec から読めない構成では SQLite（memories.body 追加案）を本文正典として読む。
     """
     old = db.active_collection(conn)
-    new = temp_collection_name(f"hive_{_base_team(old)}")
+    new = temp_collection_name(f"hive_{_base_team(old)}", avoid=old)
     _log.info(
         "reembed 開始: old=%s new=%s model=%s dim=%s", old, new, provider.model_name, provider.dim
     )

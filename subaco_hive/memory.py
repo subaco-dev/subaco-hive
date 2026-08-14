@@ -22,19 +22,27 @@ Zvec の具体 API（CollectionSchema / insert / hybrid search）は spike で�
 
 from __future__ import annotations
 
+import re
+import shutil
 import uuid
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from . import db
+from . import config, db
 from .logging import get_logger
 from .messaging import Session, member_trust, wrap_body
 from .models import MEMORY_COMMITTED, MEMORY_PENDING, TRUST_NORMAL
 from .secrets import allowed_for_write
 
 _log = get_logger(__name__)
+
+#: ベクタコレクションを置く `.hive/` 直下のディレクトリ名。
+#: `hive admin backup` / `restore` がスナップショット対象とする単位でもあるため、
+#: レイアウトの正典はここに一本化する（cli はこの定数を import する）。
+MEMORY_DIRNAME = "memory"
 
 
 def _now_iso(now: str | None = None) -> str:
@@ -81,10 +89,38 @@ class VectorBackend(Protocol):
 
 
 class ZvecBackend:
-    """Zvec 実装（**遅延 import**）。具体 API は Zvec spike で確定するまで本クラスに隔離する（TODO）。"""
+    """Zvec 実装（**遅延 import**）。zvec の具体 API との差異を本クラスに隔離する。
 
-    def __init__(self) -> None:
+    Zvec spike（計画書 §5 第一）で確定した実挙動（zvec 0.6 / macOS arm64・manylinux wheel）:
+
+    - コレクションは**ディレクトリ**（`zvec.create_and_open(path, schema)` / `zvec.open(path)`）。
+      本バックエンドは `<.hive>/{MEMORY_DIRNAME}/<name>` に置き、`name` はコレクション名と同一にする
+      （`hive admin backup` / `restore` がこのディレクトリ丸ごとをスナップショットする）。
+    - コレクション名の制約は `[A-Za-z0-9_-]{3,64}`（`.` `/`・非 ASCII は不可）。
+      `hive_{team}` と reembed 一時名がこの上限に収まることは `db.collection_name_for` が保証する。
+    - 本文（`text`）は STRING スカラーとして保存でき、`query(output_fields=...)` / `fetch()` で
+      **全文を欠落なく取得**できる（2000 字の日本語で往復確認済み）。よって memories への
+      `body` 追加（設計書 §4.2 の分岐）は**不要**。
+    - 既定メトリックは IP。`MetricType.COSINE` を指定した場合 `Doc.score` は**コサイン距離**
+      （小さいほど近い）で返るため、`SearchHit.score` へは `1 - distance` の**類似度**に変換する
+      （`InMemoryVectorBackend` と昇順・降順の向きを揃える）。
+    - `filter` は SQL 風の式（`kind = 'note'`。`==` は構文エラー）。文字列リテラルのエスケープ手段が
+      無い（`''` も構文エラー）ため、押し下げは `_kind_filter` が安全な値に限り、絞り込みの正しさは
+      Python 側の突き合わせで担保する。
+    - 診断ログは **stderr** へ出る（stdout は JSON-RPC 専有という MCP の前提と両立する）。
+      `zvec.init()` は呼ばない（既定 `log_dir='./logs'` でプロジェクトに `logs/` を作らせないため）。
+    - プロセスが SIGKILL されても `LOCK` は OS が解放し、別プロセスが即座に書き込みモードで
+      再オープンできる（フェイルオーバーの前提が成立する。手動の残留ロック解放は不要）。
+    - 逆に**稼働中のライターがいる間は、別プロセスからの read-only オープンも失敗する**。
+      バックアップは常駐ライター経由（管理チャネル）で行うという設計書 §4.6 の前提が必須。
+    """
+
+    #: zvec のコレクション名制約（spike で実測）。
+    NAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,64}$")
+
+    def __init__(self, root: str | None = None) -> None:
         self._zvec = None
+        self._root = root  # None なら初回利用時に <.hive>/memory（MEMORY_DIRNAME）を解決する
         self._collections: dict[str, object] = {}
 
     def _ensure_zvec(self):
@@ -98,46 +134,213 @@ class ZvecBackend:
             self._zvec = zvec
         return self._zvec
 
-    # 以下は骨子。実 API（CollectionSchema/insert/hybrid search/スナップショット）は spike で確定する（TODO）。
-    def has_collection(self, name: str) -> bool:  # pragma: no cover - Zvec 実体依存
-        raise NotImplementedError(
-            "ZvecBackend.has_collection は Zvec spike 確定後に実装する（TODO）。"
+    # -- パス解決 -------------------------------------------------------------------------------
+    def _root_path(self) -> Path:
+        if self._root is None:
+            self._root = str(config.resolve_hive_root() / MEMORY_DIRNAME)
+        root = Path(self._root)
+        # `.hive/` と同じく 0700（同一 UID 以外に読ませない）。
+        root.mkdir(parents=True, exist_ok=True, mode=0o700)
+        return root
+
+    def _path(self, name: str) -> str:
+        return str(self._root_path() / self._checked_name(name))
+
+    @classmethod
+    def _checked_name(cls, name: str) -> str:
+        """zvec のコレクション名制約を満たすか検証する（パス要素にもなるため区切り文字も弾く）。"""
+        if not cls.NAME_RE.match(name):
+            raise ValueError(
+                f"コレクション名が Zvec の制約に反します: {name!r}"
+                "（許可: 英数と `_` `-`・3〜64 文字）。"
+            )
+        return name
+
+    # -- コレクション操作 -----------------------------------------------------------------------
+    def _schema(self, name: str, dim: int):
+        z = self._ensure_zvec()
+        return z.CollectionSchema(
+            name=name,
+            fields=[
+                # 本文。検索対象ではなく取得対象なのでインデックスは張らない。
+                z.FieldSchema("text", z.DataType.STRING),
+                # kind / trust は絞り込みに使うため転置インデックスを張る。
+                z.FieldSchema("kind", z.DataType.STRING, index_param=z.InvertIndexParam()),
+                z.FieldSchema("author", z.DataType.STRING),
+                z.FieldSchema("trust", z.DataType.INT32, index_param=z.InvertIndexParam()),
+            ],
+            vectors=[
+                z.VectorSchema(
+                    "vector",
+                    z.DataType.VECTOR_FP32,
+                    dimension=int(dim),
+                    index_param=z.HnswIndexParam(metric_type=z.MetricType.COSINE),
+                )
+            ],
         )
 
-    def create_collection(self, name: str, dim: int) -> None:  # pragma: no cover
-        raise NotImplementedError(
-            "ZvecBackend.create_collection は Zvec spike 確定後に実装する（TODO）。"
+    def _open(self, name: str):
+        """開いているコレクションを返す（未オープンなら開く）。存在しなければ KeyError。"""
+        cached = self._collections.get(name)
+        if cached is not None:
+            return cached
+        z = self._ensure_zvec()
+        path = self._path(name)
+        if not Path(path).is_dir():
+            raise KeyError(f"コレクションが存在しません: {name}")
+        coll = z.open(path)
+        self._collections[name] = coll
+        return coll
+
+    def has_collection(self, name: str) -> bool:
+        try:
+            return Path(self._path(name)).is_dir()
+        except ValueError:
+            return False
+
+    def create_collection(self, name: str, dim: int) -> None:
+        z = self._ensure_zvec()
+        path = self._path(name)
+        self._collections[name] = z.create_and_open(path, self._schema(name, dim))
+
+    def drop_collection(self, name: str) -> None:
+        coll = self._collections.pop(name, None)
+        if coll is None and self.has_collection(name):
+            try:
+                coll = self._open(name)
+                self._collections.pop(name, None)
+            except Exception:  # pragma: no cover - 破損コレクションは削除だけ試みる
+                coll = None
+        if coll is not None:
+            try:
+                coll.destroy()
+            except Exception as exc:  # pragma: no cover - 実体依存
+                _log.warning("コレクション destroy に失敗（ディレクトリ削除で継続）: %s", exc)
+            del coll
+        shutil.rmtree(Path(self._path(name)), ignore_errors=True)
+
+    def list_collections(self) -> list[str]:
+        return sorted(
+            p.name for p in self._root_path().iterdir() if p.is_dir() and self.NAME_RE.match(p.name)
         )
 
-    def drop_collection(self, name: str) -> None:  # pragma: no cover
-        raise NotImplementedError(
-            "ZvecBackend.drop_collection は Zvec spike 確定後に実装する（TODO）。"
+    # -- ドキュメント操作 -----------------------------------------------------------------------
+    def insert(self, name, *, id, vector, text, kind, author, trust) -> None:
+        z = self._ensure_zvec()
+        coll = self._open(name)
+        # upsert: フェイルオーバー再送で同一 id が再投入されても重複させない（冪等）。
+        status = coll.upsert(
+            z.Doc(
+                id=id,
+                vectors={"vector": [float(x) for x in vector]},
+                fields={
+                    "text": text,
+                    "kind": kind,
+                    "author": author,
+                    "trust": int(trust),
+                },
+            )
         )
+        _raise_if_failed(status, f"insert({name}, id={id})")
+        # 二段書きの (2) を耐クラッシュにする: committed 更新前にベクタを永続化しておく。
+        coll.flush()
 
-    def list_collections(self) -> list[str]:  # pragma: no cover
-        raise NotImplementedError(
-            "ZvecBackend.list_collections は Zvec spike 確定後に実装する（TODO）。"
-        )
+    def delete(self, name: str, ids: list[str]) -> None:
+        if not ids:
+            return
+        coll = self._open(name)
+        statuses = coll.delete(list(ids))
+        if not isinstance(statuses, list):
+            statuses = [statuses]
+        for st in statuses:
+            # 孤児掃除では「そもそも入っていない」が正常（NOT_FOUND は無視する）。
+            if not st.ok() and "NOT_FOUND" not in str(st.code()):
+                raise RuntimeError(f"Zvec delete に失敗しました（{name}）: {st.message()}")
+        coll.flush()
 
-    def insert(self, name, *, id, vector, text, kind, author, trust) -> None:  # pragma: no cover
-        raise NotImplementedError(
-            "ZvecBackend.insert は Zvec spike 確定後に実装する（TODO）。"
-        )
+    def get_text(self, name: str, id: str) -> str | None:
+        try:
+            coll = self._open(name)
+        except KeyError:
+            return None
+        docs = coll.fetch([id], output_fields=["text"], include_vector=False)
+        doc = docs.get(id)
+        return None if doc is None else doc.fields.get("text")
 
-    def delete(self, name: str, ids: list[str]) -> None:  # pragma: no cover
-        raise NotImplementedError(
-            "ZvecBackend.delete は Zvec spike 確定後に実装する（TODO）。"
-        )
+    def search(self, name, *, vector, top_k, kind=None) -> list[SearchHit]:
+        z = self._ensure_zvec()
+        try:
+            coll = self._open(name)
+        except KeyError:
+            return []
+        top_k = max(0, int(top_k))
+        if top_k == 0:
+            return []
+        query = z.Query("vector", vector=[float(x) for x in vector])
+        zfilter = _kind_filter(kind)
+        # 押し下げできない kind（式に埋め込めない文字——日本語 kind 等）は Python 側で突き合わせるが、
+        # 単発の topk=top_k 取得では「kind 一致の上位 top_k」ではなく「全体上位 top_k の中の一致分」に
+        # なり取りこぼす（多数派 kind が上位を占めると、実在する記憶が 0 件で返る）。一致が top_k 件
+        # 揃うか全件を読み尽くすまで topk を段階拡大し、InMemoryVectorBackend と再現率を揃える。
+        need_escalation = kind is not None and zfilter is None
+        fetch_n = top_k * 4 if need_escalation else top_k
+        while True:
+            docs = coll.query(
+                query,
+                topk=fetch_n,
+                filter=zfilter,
+                include_vector=False,
+                output_fields=["text", "kind", "author", "trust"],
+            )
+            hits = [
+                SearchHit(
+                    id=d.id,
+                    # COSINE の score は距離。類似度（大きいほど近い）へ揃える。
+                    score=1.0 - float(d.score),
+                    text=d.fields.get("text") or "",
+                    kind=d.fields.get("kind") or "",
+                    author=d.fields.get("author") or "",
+                    trust=int(d.fields.get("trust") or 0),
+                )
+                for d in docs
+            ]
+            # kind はエージェント入力のため、押し下げの有無によらず Python 側でも必ず突き合わせる
+            # （式インジェクション対策——_kind_filter 参照）。
+            if kind is not None:
+                hits = [h for h in hits if h.kind == kind]
+            exhausted = len(docs) < fetch_n
+            if not need_escalation or len(hits) >= top_k or exhausted:
+                return hits[:top_k]
+            fetch_n *= 4
 
-    def get_text(self, name: str, id: str) -> str | None:  # pragma: no cover
-        raise NotImplementedError(
-            "ZvecBackend.get_text は Zvec spike 確定後に実装する（TODO）。"
-        )
+    def close(self) -> None:
+        """開いているコレクションを閉じて LOCK を解放する（フェイルオーバー・テスト用）。"""
+        self._collections.clear()
 
-    def search(self, name, *, vector, top_k, kind=None) -> list[SearchHit]:  # pragma: no cover
-        raise NotImplementedError(
-            "ZvecBackend.search は Zvec spike 確定後に実装する（TODO）。"
-        )
+
+def _raise_if_failed(status, what: str) -> None:
+    """zvec の Status（`ok()` / `code()` / `message()` はメソッド）を検査して失敗なら送出する。"""
+    items = status if isinstance(status, list) else [status]
+    for st in items:
+        if not st.ok():
+            raise RuntimeError(f"Zvec {what} に失敗しました: {st.code()} {st.message()}")
+
+
+#: filter 式へ**そのまま**埋め込んでよい値の文字集合（引用符・空白・演算子を含まない）。
+_PUSHDOWN_SAFE_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def _kind_filter(kind: str | None) -> str | None:
+    """kind を Zvec の filter 式へ押し下げる。押し下げられない値なら None を返す。
+
+    kind はエージェント入力であり、そのまま連結すると filter 式を壊せる（式インジェクション）。
+    Zvec の filter 方言には移植性のあるエスケープが無く、`''` による二重化は構文エラーになる
+    （spike で実測）。そこで**安全な文字集合のときだけ押し下げ**、それ以外は押し下げを諦めて
+    呼び出し側の Python 突き合わせに委ねる。押し下げは最適化であり、正しさの根拠ではない。
+    """
+    if kind is None or not _PUSHDOWN_SAFE_RE.match(kind):
+        return None
+    return f"kind = '{kind}'"
 
 
 class InMemoryVectorBackend:

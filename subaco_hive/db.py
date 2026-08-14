@@ -12,6 +12,7 @@ stdlib sqlite3 のみで動作する（Zvec / 埋め込みには依存しない�
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from pathlib import Path
 
@@ -134,9 +135,25 @@ TABLES = (
 _PathLike = str | Path
 
 
+# Zvec のコレクション名は `[A-Za-z0-9_-]{3,64}`（spike で実測）。reembed の一時名は
+# `{base}__reembed_{unix_ts}` と最大 21 字を足すため、base 側の上限を 43 字に抑える。
+MAX_COLLECTION_NAME_LEN = 64
+_REEMBED_SUFFIX_RESERVE = 21
+MAX_BASE_COLLECTION_LEN = MAX_COLLECTION_NAME_LEN - _REEMBED_SUFFIX_RESERVE  # 43
+
+
 def collection_name_for(team: str) -> str:
-    """active_collection の初期値。実行時は固定導出せず hive_meta の active_collection を読む。"""
-    return f"hive_{team}"
+    """active_collection の初期値。実行時は固定導出せず hive_meta の active_collection を読む。
+
+    team は 64 字まで許されるが（config.MAX_NAME_LEN）、`hive_{team}` に reembed の一時サフィックス
+    を足すと Zvec の 64 字上限を超える。超える長さの team は先頭 29 字＋team 全体のハッシュ 8 字へ
+    畳んで**決定的**かつ衝突しにくい名前にする（同じ team なら常に同じコレクション名）。
+    """
+    base = f"hive_{team}"
+    if len(base) <= MAX_BASE_COLLECTION_LEN:
+        return base
+    digest = hashlib.blake2s(team.encode("utf-8"), digest_size=4).hexdigest()  # 8 字
+    return f"hive_{team[:29]}_{digest}"
 
 
 def connect(

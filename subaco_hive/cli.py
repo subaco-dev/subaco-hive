@@ -25,6 +25,7 @@ import uuid
 from pathlib import Path
 
 from . import audit, config, db, messaging
+from . import memory as memory_mod  # レイアウト定数のみ参照（zvec は memory 側で遅延 import）
 from .logging import get_logger, setup_logging
 
 _log = get_logger(__name__)
@@ -197,7 +198,9 @@ def cmd_reembed(a: argparse.Namespace) -> int:
 
 # ---- backup / restore------------------------------------------------------------------
 _MANIFEST_NAME = "manifest.json"
-_MEMORY_DIRNAME = "memory"
+# ベクタコレクションのディレクトリ名は memory.py（レイアウトの持ち主）を正典とする。
+# ここで独自に文字列を持つと ZvecBackend の配置とずれ、バックアップが静かに空になる。
+_MEMORY_DIRNAME = memory_mod.MEMORY_DIRNAME
 
 
 def _read_manifest(meta_source_conn) -> dict:
@@ -281,9 +284,7 @@ def cmd_restore(a: argparse.Namespace) -> int:
 
     fh = try_acquire_lock(hive_root)
     if fh is None:
-        raise SystemExit(
-            "常駐ライターが稼働中です。restore は hive-mcp 停止状態で行ってください。"
-        )
+        raise SystemExit("常駐ライターが稼働中です。restore は hive-mcp 停止状態で行ってください。")
     try:
         # 整合照合（fail-closed）: バックアップ DB のメタとマニフェスト・Zvec スナップショットの一致。
         bkp_conn = db.connect(src_db)

@@ -180,9 +180,7 @@ def test_writer_kill_promotion_and_idempotent_resend(tmp_path):
             {"tool": "hive_join", "args": {"name": "alice"}, "session": None, "request_id": "J1"}
         )
         assert r2["ok"], r2
-        assert main_ep.is_writer, (
-            "EOF 検知後にライターへ昇格しているはず（フェイルオーバー）"
-        )
+        assert main_ep.is_writer, "EOF 検知後にライターへ昇格しているはず（フェイルオーバー）"
 
         # (c) 昇格後の書き込み継続と再送の非重複。
         post = {

@@ -29,15 +29,35 @@ agmsg の「SQLite ファイルが床、エージェントがプレイヤー」�
 - 記憶層（`hive_remember` / `hive_recall`）: 二段書き（pending→Zvec→committed）・起動時孤児掃除・
   固定フィルタ（source_trust≥1 かつ現在 trust≥1）。ベクタバックエンドは抽象化され、既定は **Zvec（遅延 import）**。
   Zvec 未導入でも純 Python の `InMemoryVectorBackend` で SQLite 状態機械を動作・テスト可能。
+  `ZvecBackend` は **zvec 0.6 の実 API で実装済み**（コレクション＝`<.hive>/memory/<name>` ディレクトリ、
+  COSINE・HNSW、本文は STRING スカラー）。
 - 埋め込み抽象（`EmbeddingProvider`）: 既定 fastembed（ローカル・遅延 import）／OpenAI 互換 API。`hive reembed` で原子的スワップ。
+  既定モデルは `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 次元）。
 - ops CLI・監査ログ（本文非記録）・`hive_stats`・agmsg 互換の読み取り専用ビュー／エクスポート。
 
 **繰延（TODO をコード内 docstring に明示）:**
 
-- `ZvecBackend` の具体 API（CollectionSchema / hybrid search / スナップショット）は Zvec spike で確定（現状は骨子）。
-- 埋め込み既定モデルの最終選定（日本語簡易ベンチ）。
+- 埋め込み既定モデルの最終選定（日本語簡易ベンチ — M1-5）。fastembed が対応する多言語モデルは
+  MiniLM-L12-v2（384 次元 / 0.22GB・既定）・mpnet-base-v2（768 次元 / 1.0GB）・
+  `intfloat/multilingual-e5-large`（1024 次元 / 2.24GB）の 3 つ。
+- ハイブリッド検索（Zvec の FTS/BM25 面）の活用。v0 は密ベクタ検索のみ。
 - 前方マイグレーション runner（v0 は `hive_meta.schema_version` の照合のみ）。
 - プロキシ↔ライターのスケール限界・管理チャネルの admin token ゲート・メンバー個別除去 等。
+
+**記憶系を有効にする:**
+
+```sh
+pip install 'subaco-hive[memory]'   # zvec + fastembed
+```
+
+記憶系の統合テストは zvec が入っているときだけ走る（`tests/test_memory_zvec.py`）。
+実モデルのダウンロード（数百 MB）を伴う日本語 E2E は `SUBACO_HIVE_LIVE_EMBEDDING=1` のときのみ実行する。
+
+> **Zvec の排他に関する運用上の制約（spike で実測）:** 常駐ライターがコレクションを開いている間は、
+> 別プロセスからの **read-only オープンも失敗する**（`Can't lock read-only collection: .../LOCK`）。
+> したがってバックアップは必ず常駐ライター経由（管理チャネル）か、ライター停止状態で行う。
+> 一方、ライターが SIGKILL されても LOCK は OS が解放するため、**残留ロックの手動解放は不要**で
+> 昇格したプロキシは待ちなしで開き直せる。
 
 ## アーキテクチャ: 単一ライターと first-writer-wins
 

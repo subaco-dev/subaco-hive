@@ -3,7 +3,8 @@
 #   flock / SO_PEERCRED / LOCAL_PEERCRED 等の OS 依存機構を主要プラットフォームで検証するため
 #   並行性テスト（tests/test_concurrency.py）は両ランナー必須。
 # - stdlib のみで動く層は外部依存なしで緑になる。Zvec / MCP SDK は不要。
-# - Zvec 統合（記憶系の実バックエンド）は macOS(arm64) の別ジョブで走らせ、wheel が無ければ skip。
+# - Zvec 統合（記憶系の実バックエンド）は memory extra を解決する別ジョブで ubuntu + macOS(arm64) 実行。
+#   zvec が入らない環境では importorskip で丸ごと skip される。
 #
 # セキュリティ: 供給網対策として、公開後は各 uses を commit SHA でピン留めするのが望ましい
 # （封じ込め要件と同型）。v0 ではタグ参照＋最小 permissions で運用する。
@@ -51,11 +52,14 @@ jobs:
         run: uv run --python 3.11 --with pytest --no-project pytest -q
 
   zvec-integration:
-    name: zvec integration (macOS arm64)
-    runs-on: macos-latest # Zvec は macOS arm64 wheel を提供する。
-    # wheel 未提供・記憶系依存の解決失敗は許容する（「wheel 無ければ skip」）。
-    # ZvecBackend の実体は spike 確定後（現状は importorskip でガードした骨子テストのみ）。
-    continue-on-error: true
+    name: zvec integration (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # zvec 0.6 の wheel は macosx_11_0_arm64 / manylinux_2_28 (x86_64, aarch64) / win_amd64。
+        # Intel Mac（macosx x86_64）向けは提供されないため、記憶系はそこでのみ縮退する。
+        os: [ubuntu-latest, macos-latest] # macos-latest は Apple Silicon（arm64）
     steps:
       - uses: actions/checkout@v4
 
@@ -64,7 +68,8 @@ jobs:
         with:
           enable-cache: true
 
-      # memory extra（zvec / fastembed）を解決して zvec ガード付きテストのみ実行する。
-      # zvec が入れば実行、入らなければ importorskip で skip（ジョブ自体も continue-on-error）。
-      - name: pytest (memory extra, zvec-guarded)
-        run: uv run --python 3.11 --extra memory --with pytest pytest -q -k zvec
+      # memory extra（zvec / fastembed）を解決して記憶系の実バックエンド統合テストを実行する。
+      # 実モデルのダウンロード（数百 MB）を伴う日本語 E2E は SUBACO_HIVE_LIVE_EMBEDDING=1 のときだけ走る
+      # ため、ここでは設定しない（skip される）。
+      - name: pytest (memory extra)
+        run: uv run --python 3.11 --extra memory --with pytest pytest -q tests/test_memory_zvec.py
