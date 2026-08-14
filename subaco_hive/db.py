@@ -52,7 +52,7 @@ CREATE TABLE IF NOT EXISTS members (
   UNIQUE(team, name)
 );
 
--- メッセージ（agmsg 互換の宛先モデル）
+-- メッセージ（agmsg 着想の宛先モデル。ブロードキャストと正規化既読は hive 拡張——06_spike結果 §3）
 CREATE TABLE IF NOT EXISTS messages (
   id INTEGER PRIMARY KEY,
   team TEXT NOT NULL,

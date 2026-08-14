@@ -33,7 +33,7 @@ agmsg の「SQLite ファイルが床、エージェントがプレイヤー」�
   COSINE・HNSW、本文は STRING スカラー）。
 - 埋め込み抽象（`EmbeddingProvider`）: 既定 fastembed（ローカル・遅延 import）／OpenAI 互換 API。`hive reembed` で原子的スワップ。
   既定モデルは `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 次元）。
-- ops CLI・監査ログ（本文非記録）・`hive_stats`・agmsg 互換の読み取り専用ビュー／エクスポート。
+- ops CLI・監査ログ（本文非記録）・`hive_stats`・agmsg 形の読み取り専用エクスポートビュー（同一 DB での無改変 agmsg 相互運用は不成立と spike で確定——docs 06_spike結果）。
 
 **繰延（TODO をコード内 docstring に明示）:**
 
@@ -71,7 +71,7 @@ pip install 'subaco-hive[memory]'   # zvec + fastembed
   request_id で冪等化し（`processed_requests` 台帳）、昇格後の新ライターも突合して重複実行を抑止する。
 - **アクセス制御**: `.hive/` は 0700・`hive.sock` は 0600。接続受付時に SO_PEERCRED（macOS は LOCAL_PEERCRED）で
   同一 UID のみ許可。同一 UID の悪意プロセスは脅威モデル外（`.hive/` へ直接書けるため防御不能）。
-- **CLI 直書きの境界**: `messages` / `message_reads` への直接 INSERT のみ agmsg 互換 CLI に許容。
+- **CLI 直書きの境界**: `messages` / `message_reads` への直接 INSERT のみ CLI 経路に許容。
   WAL＋busy_timeout で競合を吸収。CLI 直書きは mcp_posts 台帳に載らないため **trust=0 扱い**（本文は既定 inbox で非配送）。
 
 ## MCP ツール一覧

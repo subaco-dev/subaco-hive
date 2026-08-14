@@ -228,7 +228,7 @@ def test_wal_concurrent_cli_inserts_no_loss_or_dup(tmp_path):
         conn.close()
 
 
-# ---- (3b) message_reads の INSERT OR IGNORE 並行: 重複収束（read_by 再構成の整合前提）-----------
+# ---- (3b) message_reads の INSERT OR IGNORE 並行: 重複収束（agmsg 形 read_at 投影の整合前提）------
 def test_wal_concurrent_reads_insert_or_ignore_dedup(tmp_path):
     root, db_path = _mk_hive(tmp_path)
     _init_db(db_path)
