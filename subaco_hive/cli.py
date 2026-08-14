@@ -216,22 +216,33 @@ def _read_manifest(meta_source_conn) -> dict:
 def cmd_backup(a: argparse.Namespace) -> int:
     """SQLite `.backup` + Zvec コレクションディレクトリのスナップショット。
 
-    常駐ライターがいれば flock は取れないが SQLite `.backup` は WAL 下でオンライン安全。
-    Zvec スナップショットの静止は一時ライター flock 取得で担保する（取れない場合は警告 — TODO 管理チャネル quiesce）。
+    Zvec スナップショットの静止は一時ライター flock 取得で担保する。**flock が取れない
+    （常駐ライター稼働中の）状態で Zvec コレクションが存在する場合は fail-closed で中止する**
+    ——稼働中のコレクションは read-only オープンも不可（spike 実測）で copytree は破損
+    スナップショットを正常品として残すため。管理チャネル経由の quiesce は未実装（TODO）。
+    SQLite 単独（コレクション不在）なら `.backup` API は WAL 下でオンライン安全なので続行する。
     """
     from .writer import release_lock, try_acquire_lock
 
     hive_root = config.resolve_hive_root()
     db_path = config.resolve_db_path()
     dest = Path(a.path)
-    dest.mkdir(parents=True, exist_ok=True)
 
     fh = try_acquire_lock(hive_root)
+    mem_src = hive_root / _MEMORY_DIRNAME
+    if fh is None and mem_src.exists():
+        _log.error(
+            "常駐ライター稼働中のため backup を中止しました（fail-closed）。稼働中の Zvec "
+            "コレクションは静止できず、コピーは破損バックアップになり得ます。hive-mcp を"
+            "停止してから再実行してください（管理チャネル quiesce は未実装——TODO）。"
+        )
+        return 1
     if fh is None:
         _log.warning(
-            "常駐ライター稼働中。SQLite はオンライン .backup で安全ですが、Zvec スナップショットは"
-            "静止できない可能性があります（TODO: 管理チャネル quiesce）。"
+            "常駐ライター稼働中ですが Zvec コレクションが存在しないため、"
+            "SQLite のみをオンライン .backup で取得します。"
         )
+    dest.mkdir(parents=True, exist_ok=True)
     try:
         conn = db.open_db(db_path)
         try:
@@ -241,8 +252,8 @@ def cmd_backup(a: argparse.Namespace) -> int:
             with bkp:
                 conn.backup(bkp)
             bkp.close()
-            # Zvec コレクションディレクトリのスナップショット（存在すれば）。
-            mem_src = hive_root / _MEMORY_DIRNAME
+            # Zvec コレクションディレクトリのスナップショット（存在すれば。ここに来る時点で
+            # コレクションが在るなら flock 保持済み——上の fail-closed ガード）。
             if mem_src.exists():
                 mem_dst = dest / _MEMORY_DIRNAME
                 if mem_dst.exists():

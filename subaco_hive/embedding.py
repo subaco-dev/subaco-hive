@@ -252,10 +252,16 @@ def reembed(conn, store: ReembedStore, provider: EmbeddingProvider) -> str:
         store.insert_vectors(new, records)
 
     # (2) hive_meta をアトミックに切替（active_collection + model/dim）。ここまで来て初めて可視化する。
-    with conn:
-        db.set_meta(conn, db.META_ACTIVE_COLLECTION, new)
-        db.set_meta(conn, db.META_EMBEDDING_MODEL, provider.model_name)
-        db.set_meta(conn, db.META_EMBEDDING_DIM, str(int(provider.dim)))
+    # set_meta は呼び出しごとに commit するため使わない（3 回の独立 COMMIT になり、途中停止で
+    # collection / model / dim が不一致になる——レビュー指摘）。単一トランザクション版を使う。
+    db.set_meta_many(
+        conn,
+        {
+            db.META_ACTIVE_COLLECTION: new,
+            db.META_EMBEDDING_MODEL: provider.model_name,
+            db.META_EMBEDDING_DIM: str(int(provider.dim)),
+        },
+    )
 
     # (3) 旧コレクション削除（切替後）。削除失敗は致命ではない（孤児掃除で回収）。
     try:

@@ -68,8 +68,11 @@ jobs:
         with:
           enable-cache: true
 
-      # memory extra（zvec / fastembed）を解決して記憶系の実バックエンド統合テストを実行する。
+      # memory extra（zvec / fastembed）は **uv.lock に固定した版**で統合テストを実行する
+      # （毎回の再解決だと spike で検証済みの Zvec API 契約が将来リリースで無断変動するため）。
       # 実モデルのダウンロード（数百 MB）を伴う日本語 E2E は SUBACO_HIVE_LIVE_EMBEDDING=1 のときだけ走る
       # ため、ここでは設定しない（skip される）。
-      - name: pytest (memory extra)
-        run: uv run --python 3.11 --extra memory --with pytest pytest -q tests/test_memory_zvec.py
+      - name: pytest (memory extra, locked)
+        run: |
+          uv sync --locked --python 3.11 --extra memory --extra dev
+          uv run --no-sync pytest -q tests/test_memory_zvec.py

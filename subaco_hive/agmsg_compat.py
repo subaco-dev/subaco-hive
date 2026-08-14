@@ -37,8 +37,12 @@ AGMSG_VIEW_NAME = "agmsg_messages"
 
 # via を投影しない読み取り専用ビュー。read_at は 1:1 行のみ当該宛先の既読時刻を投影し、
 # ブロードキャスト行（to_agent NULL——hive 拡張）は NULL とする。
+# DROP → CREATE で定義を常に最新へ移行する（IF NOT EXISTS だけだと旧定義
+# 〔sender/recipient/read_by〕の既存ビューが残り続ける——レビュー指摘）。読み取り専用の
+# 導出ビューなので drop/recreate に失うものはない。
 _VIEW_SQL = f"""
-CREATE VIEW IF NOT EXISTS {AGMSG_VIEW_NAME} AS
+DROP VIEW IF EXISTS {AGMSG_VIEW_NAME};
+CREATE VIEW {AGMSG_VIEW_NAME} AS
 SELECT
   m.id         AS id,
   m.team       AS team,

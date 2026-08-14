@@ -600,37 +600,47 @@ class MemoryStore:
             return RecallResult([], audit.build_summary(tool="hive_recall", count=0, top_k=top_k))
 
         qvec = self.provider.embed_query(query)
-        # 粗フィルタは top_k を余裕を持って引き、正典（SQLite）側の固定フィルタで確定する。
-        raw = self.backend.search(collection, vector=qvec, top_k=max(top_k * 4, top_k), kind=kind)
-
+        # 粗フィルタは top_k を余裕を持って引くが、**固定取得だと低 trust 記憶が候補枠を占有して
+        # 正当な記憶が埋没する**（例: 未信頼記憶 21 件が上位を占めると top_k*4=20 の枠内に
+        # 正当な 1 件が入らず 0 件になる——レビューで実機再現）。固定フィルタの正典は SQLite で
+        # あり、Zvec 側 trust スカラーは restamp で陳腐化し得るため検索前の押し下げはしない。
+        # 代わりに、有効件数が top_k 揃うかバックエンドを読み尽くすまで取得数を段階拡大する。
+        fetch_n = max(top_k * 4, top_k)
         entries: list[RecallEntry] = []
-        for hit in raw:
-            row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (hit.id,)).fetchone()
-            if row is None or row["status"] != MEMORY_COMMITTED:
-                continue  # 孤児（pending・メタなし）は結果に出さない
-            # 固定フィルタ: source_trust>=1 かつ 著者の現在 trust>=1 の AND。
-            if int(row["source_trust"]) < TRUST_NORMAL:
-                continue
-            current = member_trust(self.conn, session.team, row["author"])
-            if current < TRUST_NORMAL:
-                continue
-            text = self._read_text(collection, hit)
-            header = memory_header(
-                author=row["author"], trust=current, kind=row["kind"], date=row["created_at"]
-            )
-            entries.append(
-                RecallEntry(
-                    memory_id=hit.id,
-                    header=header,
-                    body=wrap_body(text),
-                    score=hit.score,
-                    kind=row["kind"],
-                    author=row["author"],
-                    trust=current,
+        while True:
+            raw = self.backend.search(collection, vector=qvec, top_k=fetch_n, kind=kind)
+            entries = []
+            for hit in raw:
+                row = self.conn.execute("SELECT * FROM memories WHERE id = ?", (hit.id,)).fetchone()
+                if row is None or row["status"] != MEMORY_COMMITTED:
+                    continue  # 孤児（pending・メタなし）は結果に出さない
+                # 固定フィルタ: source_trust>=1 かつ 著者の現在 trust>=1 の AND。
+                if int(row["source_trust"]) < TRUST_NORMAL:
+                    continue
+                current = member_trust(self.conn, session.team, row["author"])
+                if current < TRUST_NORMAL:
+                    continue
+                text = self._read_text(collection, hit)
+                header = memory_header(
+                    author=row["author"], trust=current, kind=row["kind"], date=row["created_at"]
                 )
-            )
-            if len(entries) >= top_k:
+                entries.append(
+                    RecallEntry(
+                        memory_id=hit.id,
+                        header=header,
+                        body=wrap_body(text),
+                        score=hit.score,
+                        kind=row["kind"],
+                        author=row["author"],
+                        trust=current,
+                    )
+                )
+                if len(entries) >= top_k:
+                    break
+            exhausted = len(raw) < fetch_n
+            if len(entries) >= top_k or exhausted:
                 break
+            fetch_n *= 4
 
         summary = audit.build_summary(
             tool="hive_recall", count=len(entries), top_k=top_k, kind=kind

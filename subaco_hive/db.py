@@ -190,14 +190,28 @@ def get_meta(conn: sqlite3.Connection, key: str) -> str | None:
     return row["value"] if isinstance(row, sqlite3.Row) else row[0]
 
 
+_META_UPSERT_SQL = (
+    "INSERT INTO hive_meta(key, value) VALUES(?, ?) "
+    "ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+)
+
+
 def set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
-    """hive_meta の値を upsert する。"""
-    conn.execute(
-        "INSERT INTO hive_meta(key, value) VALUES(?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-        (key, value),
-    )
+    """hive_meta の値を upsert する（単独呼び出し用。即 commit）。"""
+    conn.execute(_META_UPSERT_SQL, (key, value))
     conn.commit()
+
+
+def set_meta_many(conn: sqlite3.Connection, items: dict[str, str]) -> None:
+    """複数キーを**単一トランザクション**で upsert する（全適用か無適用か）。
+
+    reembed の active_collection / embedding_model / embedding_dim 切替のように、
+    部分適用が不整合（コレクションとモデル次元の不一致）を生む複数キー更新に使う。
+    `set_meta` は呼び出しごとに commit するため、この用途には使えない。
+    """
+    with conn:  # 例外時 rollback・正常時のみ commit（内部で commit しないこと）
+        for key, value in items.items():
+            conn.execute(_META_UPSERT_SQL, (key, value))
 
 
 def _set_meta_if_absent(conn: sqlite3.Connection, key: str, value: str) -> None:

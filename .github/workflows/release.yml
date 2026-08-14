@@ -32,13 +32,15 @@ jobs:
           set -euo pipefail
           tag="${GITHUB_REF_NAME#v}"
           proj="$(uv run --no-project python -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')"
-          mod="$(uv run --no-project python -c 'import re;print(re.search(r"\"([^\"]+)\"", open("subaco_hive/_version.py").read()).group(1))')"
+          # 正規表現でファイル先頭の docstring を誤取得しないよう、モジュールを import して取得する。
+          mod="$(uv run --no-project python -c 'from subaco_hive._version import __version__; print(__version__)')"
           echo "tag=$tag pyproject=$proj _version=$mod"
           [ "$tag" = "$proj" ] && [ "$tag" = "$mod" ] || { echo "::error::タグとパッケージ版が一致しません"; exit 1; }
 
-      - name: テスト（stdlib 層 + zvec 統合）
+      - name: テスト（stdlib 層 + zvec 統合。uv.lock に固定した版で実行）
         run: |
-          uv run --python 3.11 --with pytest --with zvec --no-project pytest -q
+          uv sync --locked --python 3.11 --extra all --extra dev
+          uv run --no-sync pytest -q
 
       - name: ビルド（sdist + wheel）
         run: uv build
@@ -47,7 +49,7 @@ jobs:
         # 起動スクリプトは `uvx --with-requirements requirements-hive.txt subaco-hive==<版>` の形で
         # 使うため、requirements にはプロジェクト自身を含めない（--no-emit-project）。
         run: |
-          uv export --no-dev --extra all --no-emit-project --format requirements-txt \
+          uv export --locked --no-dev --extra all --no-emit-project --format requirements-txt \
             -o dist/requirements-hive.txt
           head -5 dist/requirements-hive.txt
 

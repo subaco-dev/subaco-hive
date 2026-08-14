@@ -116,3 +116,23 @@ def test_agmsg_real_ddl_accepts_agmsg_sql():
         (rows[0][0],),
     )
     assert db.execute("SELECT COUNT(*) FROM messages WHERE read_at IS NULL").fetchone()[0] == 0
+
+
+def test_create_view_migrates_old_definition(conn):
+    """旧定義（sender/recipient/read_by）のビューが残る DB でも新定義へ移行すること。
+
+    CREATE VIEW IF NOT EXISTS だけでは旧ビューが残り続ける（レビュー指摘）。
+    """
+    conn.execute(
+        f"CREATE VIEW {agmsg_compat.AGMSG_VIEW_NAME} AS "
+        "SELECT id, team, sender, recipient, body, created_at, 'x' AS read_by FROM messages"
+    )
+    conn.commit()
+    _seed(conn)
+    agmsg_compat.create_view(conn)
+    cols = [
+        d[0]
+        for d in conn.execute(f"SELECT * FROM {agmsg_compat.AGMSG_VIEW_NAME} LIMIT 1").description
+    ]
+    assert "from_agent" in cols and "to_agent" in cols and "read_at" in cols
+    assert "read_by" not in cols and "sender" not in cols

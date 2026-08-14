@@ -104,3 +104,49 @@ def test_remember_secret_rejected(conn, provider):
     )
     assert not res.accepted and res.reason_codes
     assert conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] == 0
+
+
+class _AngleProvider:
+    """クエリ= x 軸単位ベクトル・本文=登録した角度、の決定的埋め込み（埋没検証用）。"""
+
+    dim = 8
+    model_name = "angle-fake"
+
+    def __init__(self) -> None:
+        self.by_text: dict[str, list[float]] = {}
+
+    @staticmethod
+    def _vec(deg: float) -> list[float]:
+        import math
+
+        r = math.radians(deg)
+        v = [0.0] * 8
+        v[0] = math.cos(r)
+        v[1] = math.sin(r)
+        return v
+
+    def embed_query(self, text: str) -> list[float]:
+        return self.by_text.get(text, self._vec(0.0))
+
+
+def test_recall_not_starved_by_low_trust_memories(conn):
+    """低 trust 記憶が候補枠を占有しても、正当な記憶が埋没しないこと（レビュー再現）。
+
+    未信頼著者の記憶 21 件がクエリ近傍を占めると、固定 top_k*4=20 件取得では正当な 1 件が
+    候補に入らず 0 件になる。取得数の段階拡大で正当な記憶が返ることを固定する。
+    """
+    provider = _AngleProvider()
+    _join(conn, "alice")  # trust=1
+    _join(conn, "mallory", trusted=False)  # trust=0
+    st = MemoryStore(conn, provider, backend=InMemoryVectorBackend())
+    # 未信頼記憶 21 件がクエリ近傍（0.1..2.1 度）を占有する。
+    for i in range(21):
+        text = f"spam-{i}"
+        provider.by_text[text] = provider._vec(0.1 * (i + 1))
+        st.hive_remember(Session("alpha", "mallory"), kind="note", text=text, request_id=f"s{i}")
+    # 正当な記憶 1 件はやや遠方（30 度）。
+    provider.by_text["legit"] = provider._vec(30.0)
+    st.hive_remember(Session("alpha", "alice"), kind="note", text="legit", request_id="ok")
+    out = st.hive_recall(Session("alpha", "alice"), query="q", top_k=5)
+    assert len(out.entries) == 1
+    assert out.entries[0].author == "alice"

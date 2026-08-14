@@ -97,3 +97,16 @@ def test_verify_embedding(tmp_path):
     with pytest.raises(db.SchemaError):
         db.verify_embedding(conn, model="m1", dim=512)
     conn.close()
+
+
+def test_set_meta_many_is_atomic(conn):
+    """set_meta_many は全適用か無適用か（途中失敗で部分適用にならない——レビュー指摘）。"""
+    db.set_meta(conn, "k1", "old1")
+    db.set_meta(conn, "k2", "old2")
+    with pytest.raises(sqlite3.ProgrammingError):
+        # 2 番目の値が sqlite3 で束縛不能な型 → 例外 → 全体 rollback。
+        db.set_meta_many(conn, {"k1": "new1", "k2": object()})  # type: ignore[dict-item]
+    assert db.get_meta(conn, "k1") == "old1"
+    assert db.get_meta(conn, "k2") == "old2"
+    db.set_meta_many(conn, {"k1": "new1", "k2": "new2"})
+    assert db.get_meta(conn, "k1") == "new1" and db.get_meta(conn, "k2") == "new2"
