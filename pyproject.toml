@@ -47,8 +47,8 @@ subaco-hive = "subaco_hive.server:main"
 hive = "subaco_hive.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/ponponusa/subaco"
-Repository = "https://github.com/ponponusa/subaco"
+Homepage = "https://github.com/subaco-dev/subaco"
+Repository = "https://github.com/subaco-dev/subaco-hive"
 
 [tool.hatch.build.targets.wheel]
 packages = ["subaco_hive"]

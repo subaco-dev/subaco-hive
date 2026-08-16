@@ -5,12 +5,12 @@ Publishing）・固定 requirements 生成までを行う。人手の手順は�
 
 ## 初回のみ（リポジトリ・PyPI の下準備）
 
-1. GitHub リポジトリを作成して push する（`gh repo create ponponusa/subaco-hive --public`）。
+1. GitHub リポジトリを作成して push する（`gh repo create subaco-dev/subaco-hive --public`）。
 2. PyPI で **パッケージ名 `subaco-hive` の可用性を確認・確保**する（実装計画書 M0-1 の残作業。
    初回公開が名前確保を兼ねる）。
 3. PyPI → Account settings → Publishing → **pending publisher** を登録:
    - PyPI Project Name: `subaco-hive`
-   - Owner / Repository: `ponponusa` / `subaco-hive`
+   - Owner / Repository: `subaco-dev` / `subaco-hive`
    - Workflow name: `release.yml`
    - Environment: `pypi`
 4. GitHub リポジトリ → Settings → Environments → `pypi` を作成
