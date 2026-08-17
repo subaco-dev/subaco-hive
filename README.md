@@ -33,7 +33,9 @@ agmsg の「SQLite ファイルが床、エージェントがプレイヤー」�
   COSINE・HNSW、本文は STRING スカラー）。
 - 埋め込み抽象（`EmbeddingProvider`）: 既定 fastembed（ローカル・遅延 import）／OpenAI 互換 API。`hive reembed` で原子的スワップ。
   既定モデルは `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 次元）。
-- ops CLI・監査ログ（本文非記録）・`hive_stats`・agmsg 形の読み取り専用エクスポートビュー（同一 DB での無改変 agmsg 相互運用は不成立と spike で確定——docs 06_spike結果）。
+- ops CLI・監査ログ（本文非記録）・`hive_stats`。
+  なお agmsg は**着想元であり互換レイヤは持たない**（同一 DB での無改変 agmsg 相互運用は
+  不成立と spike で確定——docs 06_spike結果。必要になれば別ファイル DB + scripts ブリッジを将来判断）。
 
 **繰延（TODO をコード内 docstring に明示）:**
 
@@ -259,7 +261,7 @@ Zvec 統合は macOS(arm64) の別ジョブで走らせる（wheel が無けれ�
 
 ### テストの層構成
 
-- `test_messaging` / `test_idempotency` / `test_normalize` / `test_secrets` / `test_agmsg_compat` /
+- `test_messaging` / `test_idempotency` / `test_normalize` / `test_secrets` /
   `test_memory` / `test_server_dispatch` … stdlib のみで緑（外部依存不要）。
 - `test_concurrency` … **プロセスレベル**（subprocess）で first-writer-wins・フェイルオーバー・
   WAL 並行（integrity_check・欠落/重複なし・busy_timeout 超過のエラー返却・書込昇格の再試行）を検証。
