@@ -34,8 +34,9 @@ agmsg の「SQLite ファイルが床、エージェントがプレイヤー」�
 - 埋め込み抽象（`EmbeddingProvider`）: 既定 fastembed（ローカル・遅延 import）／OpenAI 互換 API。`hive reembed` で原子的スワップ。
   既定モデルは `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 次元）。
 - ops CLI・監査ログ（本文非記録）・`hive_stats`。
-  なお agmsg は**着想元であり互換レイヤは持たない**（同一 DB での無改変 agmsg 相互運用は
-  不成立と spike で確定——docs 06_spike結果。必要になれば別ファイル DB + scripts ブリッジを将来判断）。
+  なお agmsg は**着想元であり、agmsg 連携対応はスコープ外**（同一 DB での無改変 agmsg 相互運用は
+  不成立と spike で確定したうえ、agmsg 自体が発展途上で互換性を破るスキーマ変更が短い間隔で
+  発生しており、ブリッジでも追随保守が見合わないため——docs 06_spike結果）。
 
 **繰延（TODO をコード内 docstring に明示）:**
 
