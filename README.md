@@ -99,13 +99,21 @@ hive admin set-trust <team> <name> <0|1|2> [--restamp]  # 昇格/降格（--rest
 hive admin reset-token <team> <name>                     # メンバートークン紛失時の再発行
 hive admin backup <dir>                                  # SQLite(.backup) + Zvec スナップショット + manifest
 hive admin restore <dir>                                 # 整合照合の上で差し替え（不一致は fail-closed）
-hive reembed [--provider fastembed|openai] [--model ..]  # 埋め込みモデル切替の原子的再埋め込み
+hive reembed [--provider fastembed|openai] [--model ..]  # 埋め込みモデル切替の原子的再埋め込み（下記注意）
 hive stats                                               # 利用統計
 hive migrate                                             # schema_version 照合（v0。runner は将来対応）
 ```
 
 管理操作の経路: 常駐ライターがいれば `hive.sock` の管理チャネル経由、いなければ
 **一時ライター**として flock を取得して実行（一回限り・hive.sock は作成せず flock 解放で終了）。いずれも audit に記録。
+（実測: `hive.sock` がクラッシュ跡としてファイルだけ残っていても、ライター正当性は **flock** で判定されるため
+一時ライター経路が正しく選ばれる。）
+
+> **既定埋め込みモデルを変更したときの移行**（v0.1.0 未公開時点で MiniLM-L12-v2 → mpnet-base-v2 に変更済み）:
+> モデル名／次元は `hive_meta` に永続化され**起動時に照合**される。古いモデルで作った `.hive/` をそのまま
+> 使うと、メッセージング系は動いたまま**記憶系ツール（hive_remember / hive_recall）のみが拒否**される
+> （環境変数の変更だけで共有記憶が静かに壊れないための設計）。`hive reembed` を一度実行すれば、
+> 既存の記憶を新モデルで再埋め込みして原子的に切り替えられる。
 
 ## 環境変数
 
