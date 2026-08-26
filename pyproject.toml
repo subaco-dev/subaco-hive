@@ -28,7 +28,7 @@ dependencies = []
 mcp = ["mcp>=1.0,<2"]
 # 記憶系（hive_remember / hive_recall）に必要。段階4 が遅延 import する。
 # zvec は 0.6 系の実測 API（spike——docs 04/tests/test_memory_zvec.py）に契約が結び付くため
-# マイナー未満で固定。fastembed は 0.8 系の対応モデル実測（暫定既定 MiniLM-L12-v2）に合わせる。
+# マイナー未満で固定。fastembed は 0.8 系の対応モデル実測（既定 mpnet-base-v2——M1-5 ベンチ確定）に合わせる。
 memory = [
   "zvec>=0.6,<0.7",
   "fastembed>=0.8,<0.9",

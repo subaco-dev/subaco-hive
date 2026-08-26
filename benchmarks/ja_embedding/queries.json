@@ -1,0 +1,22 @@
+[
+  {"id": "q01", "query": "自分のお金で払っておいた分を会社から返してもらうにはどうすればいい?", "relevant": "keihi"},
+  {"id": "q02", "query": "客先まで新幹線で行くときの切符代や泊まりの費用はどう扱われる?", "relevant": "shutcho"},
+  {"id": "q03", "query": "仕事用に新しいモニタが欲しい。会社のお金で買ってもらう方法は?", "relevant": "bihin"},
+  {"id": "q04", "query": "平日にリフレッシュのため休みを取りたい。あと何日休めるか知りたい", "relevant": "yukyu"},
+  {"id": "q05", "query": "もうすぐ子どもが生まれるので、しばらく仕事を離れられる制度を知りたい", "relevant": "ikukyu"},
+  {"id": "q06", "query": "身内に不幸があった。会社を何日休めるか教えてほしい", "relevant": "keicho"},
+  {"id": "q07", "query": "ログインに使う秘密の文字列はどのくらい複雑にする必要がある?", "relevant": "password"},
+  {"id": "q08", "query": "利用者の個人情報を社外のパートナーに渡す前に必要な手続きは?", "relevant": "kokyaku"},
+  {"id": "q09", "query": "自宅やカフェから社内の仕組みに安全につなぐやり方を知りたい", "relevant": "vpn"},
+  {"id": "q10", "query": "怪しいメールの添付を開いてしまったかもしれない。最初にすべきことは?", "relevant": "sec_incident"},
+  {"id": "q11", "query": "本番のサービスが落ちている!誰に知らせてどう動けばいい?", "relevant": "prod_outage"},
+  {"id": "q12", "query": "夜中に監視の通知で起こされた。まず何を確認すればいい?", "relevant": "alert"},
+  {"id": "q13", "query": "作った機能を本番環境に反映するときの決まった流れは?", "relevant": "deploy"},
+  {"id": "q14", "query": "同僚の書いた変更を確認するとき、どんな観点で見ればいい?", "relevant": "review"},
+  {"id": "q15", "query": "誤ってデータを消してしまった場合、元に戻す手立てはある?", "relevant": "backup"},
+  {"id": "q16", "query": "来週の打ち合わせのために部屋を押さえたい", "relevant": "kaigishitsu"},
+  {"id": "q17", "query": "業務のやりとりを個別メッセージで送るのは避けるべき?", "relevant": "chat"},
+  {"id": "q18", "query": "来月から新しい人がチームに加わる。受け入れ側が先にやることは?", "relevant": "onboarding"},
+  {"id": "q19", "query": "昇給や賞与の金額はどういう仕組みで決まるのか知りたい", "relevant": "hyoka"},
+  {"id": "q20", "query": "年に一度の体の検査はいつどうやって受ければいい?", "relevant": "kenshin"}
+]

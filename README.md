@@ -32,7 +32,9 @@ agmsg の「SQLite ファイルが床、エージェントがプレイヤー」�
   `ZvecBackend` は **zvec 0.6 の実 API で実装済み**（コレクション＝`<.hive>/memory/<name>` ディレクトリ、
   COSINE・HNSW、本文は STRING スカラー）。
 - 埋め込み抽象（`EmbeddingProvider`）: 既定 fastembed（ローカル・遅延 import）／OpenAI 互換 API。`hive reembed` で原子的スワップ。
-  既定モデルは `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2`（384 次元）。
+  既定モデルは `sentence-transformers/paraphrase-multilingual-mpnet-base-v2`（768 次元 / 約 1.0GB。
+  M1-5 の日本語ベンチ〔benchmarks/ja_embedding〕で確定——運用指標 recall@5 が唯一両条件満点。
+  top-1 最優先なら `hive reembed` で `intfloat/multilingual-e5-large` へ切替可）。
 - ops CLI・監査ログ（本文非記録）・`hive_stats`。
   なお agmsg は**着想元であり、agmsg 連携対応はスコープ外**（同一 DB での無改変 agmsg 相互運用は
   不成立と spike で確定したうえ、agmsg 自体が発展途上で互換性を破るスキーマ変更が短い間隔で
@@ -40,9 +42,6 @@ agmsg の「SQLite ファイルが床、エージェントがプレイヤー」�
 
 **繰延（TODO をコード内 docstring に明示）:**
 
-- 埋め込み既定モデルの最終選定（日本語簡易ベンチ — M1-5）。fastembed が対応する多言語モデルは
-  MiniLM-L12-v2（384 次元 / 0.22GB・既定）・mpnet-base-v2（768 次元 / 1.0GB）・
-  `intfloat/multilingual-e5-large`（1024 次元 / 2.24GB）の 3 つ。
 - ハイブリッド検索（Zvec の FTS/BM25 面）の活用。v0 は密ベクタ検索のみ。
 - 前方マイグレーション runner（v0 は `hive_meta.schema_version` の照合のみ）。
 - プロキシ↔ライターのスケール限界・管理チャネルの admin token ゲート・メンバー個別除去 等。

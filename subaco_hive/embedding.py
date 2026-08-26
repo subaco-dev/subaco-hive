@@ -24,16 +24,19 @@ from .logging import get_logger
 
 _log = get_logger(__name__)
 
-# 既定ローカルモデル（多言語小型）。日本語主体のため多言語対応を選ぶ（最終選定は M1-5 の簡易ベンチで確定）。
+# 既定ローカルモデル（多言語）。日本語主体のため多言語対応から選ぶ。
 #
-# Zvec spike と同時に fastembed 0.8 の `TextEmbedding.list_supported_models()` を実測した結果、
-# `intfloat/multilingual-e5-small` は **fastembed が対応していない**（-large のみ提供）ため、
-# 日本語を扱える小型モデルとして paraphrase-multilingual-MiniLM-L12-v2（384 次元・約 0.22GB）を既定にする。
-# fastembed が対応する多言語モデルは実測時点で次の 3 つのみ:
-#   sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2  384 次元 / 0.22GB（既定）
-#   sentence-transformers/paraphrase-multilingual-mpnet-base-v2  768 次元 / 1.0GB
+# **M1-5 の日本語簡易ベンチ（benchmarks/ja_embedding・docs 09_実測結果）で確定**:
+# fastembed 0.8 が対応する多言語モデル全 3 択（`TextEmbedding.list_supported_models()` 実測）
+# を社内文書 20 件 × 言い換えクエリ 20 件で比較し、運用指標（hive_recall は top_k=5 既定）の
+# recall@5 で唯一両条件（タイトル+本文／本文のみ）満点だった mpnet-base-v2 を既定にする。
+#   sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2  384 次元 / 0.22GB
+#       （recall@5 0.95——top-5 落ちを実測。旧暫定既定）
+#   sentence-transformers/paraphrase-multilingual-mpnet-base-v2  768 次元 / 1.0GB（既定）
+#       （recall@5 1.00/1.00・recall@1 0.85-0.90）
 #   intfloat/multilingual-e5-large                              1024 次元 / 2.24GB
-DEFAULT_FASTEMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+#       （recall@1 0.95 で最良だが DL/次元コストが倍。品質優先時は `hive reembed` で切替）
+DEFAULT_FASTEMBED_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 # 実ロードせず次元を返すための既知モデル表（M1-5 のベンチで確定・追補する）。
 # fastembed 側の対応状況は `TextEmbedding.list_supported_models()` が正典。
