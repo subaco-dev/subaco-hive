@@ -20,10 +20,11 @@ jobs:
     name: build + version gate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
+      # setup-uv は v8 以降メジャータグ（@vN）を提供しないため commit SHA でピン留め（pypi-publish と同じ作法）。
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d # v10.0.1
         with:
           enable-cache: true
 
@@ -53,7 +54,7 @@ jobs:
             -o dist/requirements-hive.txt
           head -5 dist/requirements-hive.txt
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
@@ -66,7 +67,7 @@ jobs:
     permissions:
       id-token: write # OIDC（Trusted Publishing）に必須
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/
@@ -74,5 +75,5 @@ jobs:
       - name: requirements を配布物から除外（PyPI へは sdist/wheel のみ）
         run: mv dist/requirements-hive.txt "$RUNNER_TEMP/"
 
-      # v1.13.0 を commit SHA でピン留め（供給網対策）。
-      - uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+      # v1.14.2 を commit SHA でピン留め（供給網対策）。
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
